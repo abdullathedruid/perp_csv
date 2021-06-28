@@ -232,7 +232,3 @@ def return_trades():
         return "Error: Address not specified"
     trades = get_all_trades(address)
     return trades_to_csv(trades)
-
-# keep this as is
-if __name__ == '__main__':
-    app.run(debug=True)
