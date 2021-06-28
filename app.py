@@ -89,7 +89,7 @@ def dateparser(timestamp):
     return datetime.fromtimestamp(int(timestamp))
 
 def build_trade_headers():
-    return ['asset','size','price','PnL','id','timestamp']
+    return ['pair','size','price','PnL','transaction hash','timestamp']
 
 def build_trade_row(trade):
     return [
@@ -177,7 +177,7 @@ def get_all_funding(address, amm):
     return output
 
 def build_funding_headers():
-    return ['asset','rate','payment','timestamp']
+    return ['pair','rate','payment','timestamp']
 
 def build_funding_row(funding):
     return [
@@ -204,11 +204,11 @@ def hello():
     form = MainForm()
     if form.validate_on_submit():
         if form['submit_trades'].data:
-            return jsonify(get_all_trades(form.address.data))
+            return trades_to_csv(get_all_trades(form.address.data))
         elif form['submit_funding'].data:
             for address, pair in assets.items():
                 if pair == form.amm.data:
-                    return jsonify(get_all_funding(form.address.data, address))
+                    return funding_to_csv(get_all_funding(form.address.data, address))
     return render_template('index.html',form=form)
 
 @app.route('/api/funding', methods=['GET'])
@@ -231,8 +231,7 @@ def return_trades():
     else:
         return "Error: Address not specified"
     trades = get_all_trades(address)
-    return jsonify(trades)
-    # return trades_to_csv(trades)
+    return trades_to_csv(trades)
 
 # keep this as is
 if __name__ == '__main__':
