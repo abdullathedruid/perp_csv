@@ -1,4 +1,8 @@
-from flask import Flask, request, make_response, jsonify
+from flask import Flask, render_template, redirect, url_for, request, make_response, jsonify
+from flask_bootstrap import Bootstrap
+from flask_wtf import FlaskForm
+from wtforms import StringField, SubmitField, SelectField
+from wtforms.validators import DataRequired
 from datetime import datetime
 import requests
 import json
@@ -7,6 +11,8 @@ import csv
 import time
 
 app = Flask(__name__)
+app.config['SECRET_KEY']='iloveperpprotocol'
+Bootstrap(app)
 
 MARKET_OPEN_TIMESTAMP = 1607914695
 
@@ -29,6 +35,12 @@ assets = {
     "0x187c938543f2bde09fe39034fe3ff797a3d35ca0": "GRT-USDC",
     "0x26789518695b56e16f14008c35dc1b281bd5fc0e": "ALPHA-USDC"
 }
+
+class MainForm(FlaskForm):
+    address = StringField('Ethereum address')
+    submit_trades = SubmitField('Get Trades')
+    amm = SelectField('Get Amm',choices=assets.values())
+    submit_funding = SubmitField('Get Funding for Amm')
 
 def get_all_position_changed_after_timestamp(trader, timestamp):
     query = """{
@@ -187,9 +199,17 @@ def funding_to_csv(funding):
     output.headers["Content-type"] = "text/csv"
     return output
 
-@app.route('/')
+@app.route('/', methods=['GET','POST'])
 def hello():
-    return 'Hello World'
+    form = MainForm()
+    if form.validate_on_submit():
+        if form['submit_trades'].data:
+            return jsonify(get_all_trades(form.address.data))
+        elif form['submit_funding'].data:
+            for address, pair in assets.items():
+                if pair == form.amm.data:
+                    return jsonify(get_all_funding(form.address.data, address))
+    return render_template('index.html',form=form)
 
 @app.route('/api/funding', methods=['GET'])
 def return_funding():
@@ -213,3 +233,7 @@ def return_trades():
     trades = get_all_trades(address)
     return jsonify(trades)
     # return trades_to_csv(trades)
+
+# keep this as is
+if __name__ == '__main__':
+    app.run(debug=True)
