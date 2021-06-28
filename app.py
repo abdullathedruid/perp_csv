@@ -1,11 +1,14 @@
-from flask import Flask, request, make_response
+from flask import Flask, request, make_response, jsonify
 from datetime import datetime
 import requests
 import json
 import io
 import csv
+import time
 
 app = Flask(__name__)
+
+MARKET_OPEN_TIMESTAMP = 1607914695
 
 assets = {
     "0x922f28072babe6ea0c0c25ccd367fda0748a5ec7": "REN-USDC",
@@ -94,8 +97,94 @@ def trades_to_csv(trades):
         line = build_trade_row(trade)
         writer.writerow(line)
     output = make_response(si.getvalue())
-    # output.headers["Content-Disposition"] = "attachment; filename=export.csv"
-    # output.headers["Content-type"] = "text/csv"
+    output.headers["Content-Disposition"] = "attachment; filename=trades.csv"
+    output.headers["Content-type"] = "text/csv"
+    return output
+
+
+
+def get_funding_changed_between_timestamps(amm,start_timestamp, end_timestamp):
+    query = """{
+      fundingRateUpdatedEvents(first: 1000, orderBy: timestamp, orderDirection: asc,where:{amm:"%s",timestamp_gt:"%s",timestamp_lt:"%s"}) {
+        id
+        rate
+        underlyingPrice
+        timestamp
+      }
+    }
+    """ % (amm, start_timestamp, end_timestamp)
+    url = 'https://api.thegraph.com/subgraphs/name/perpetual-protocol/perp-position-subgraph'
+    r = requests.post(url, json={'query': query})
+    json_data = json.loads(r.text)
+    return json_data['data']['fundingRateUpdatedEvents']
+
+def get_all_funding_changed_between_timestamps(amm,start_timestamp, end_timestamp):
+    has_data_remained = True
+    fundingRateEvents_raw = []
+    starting_timestamp = start_timestamp
+    while has_data_remained:
+        latest_1k_funding = get_funding_changed_between_timestamps(amm,starting_timestamp,end_timestamp)
+        time.sleep(0.5) #need to avoid overloading the graph
+        fundingRateEvents_raw.extend(latest_1k_funding)
+
+        if len(latest_1k_funding) > 0:
+            starting_timestamp = int(latest_1k_funding[-1]['timestamp'])
+            if len(latest_1k_funding) < 1000:
+                has_data_remained = False
+        else:
+            has_data_remained = False #this might be an error so needs handling
+    return fundingRateEvents_raw
+
+def get_all_funding(address, amm):
+
+    #Get all the trades the user made
+    trades = get_all_trades(address)
+
+    output = []
+
+    #filter users trades to get the ones for this amm
+    amm_trades = filter(lambda x: x['amm'] == amm.lower(),trades)
+    lastFunding = 0
+    size = 0
+    for trade in amm_trades:
+        if size != 0:
+            funding = get_all_funding_changed_between_timestamps(trade['amm'],lastFunding, trade['timestamp'])
+            for fund in funding:
+                pos = {}
+                pos['asset'] = assets.get(str(trade['amm']),trade['amm'])
+                # pos['size'] = size
+                pos['rate'] = numparser(fund['rate'])
+                # pos['price'] = numparser(fund['underlyingPrice'])
+                pos['timestamp'] = dateparser(fund['timestamp'])
+                pos['payment'] = numparser(fund['underlyingPrice']) * size * numparser(fund['rate'])
+                output.append(pos)
+
+        lastFunding = trade['timestamp']
+        size = numparser(trade['positionSizeAfter'])
+
+    return output
+
+def build_funding_headers():
+    return ['asset','rate','payment','timestamp']
+
+def build_funding_row(funding):
+    return [
+    assets.get(str(funding['asset']),funding['asset']),
+    funding['rate'],
+    funding['payment'],
+    funding['timestamp']
+    ]
+
+def funding_to_csv(funding):
+    si = io.StringIO()
+    writer = csv.writer(si, quoting = csv.QUOTE_NONE)
+    writer.writerow(build_funding_headers())
+    for fund in funding:
+        line = build_funding_row(fund)
+        writer.writerow(line)
+    output = make_response(si.getvalue())
+    output.headers["Content-Disposition"] = "attachment; filename=funding.csv"
+    output.headers["Content-type"] = "text/csv"
     return output
 
 @app.route('/')
@@ -108,7 +197,12 @@ def return_funding():
         address = request.args['address']
     else:
         return "Error: Address not specified"
-    return address
+    if 'pair' in request.args:
+        pair = request.args['pair']
+    else:
+        return "Error: Pair not specified"
+    funding = get_all_funding(address, pair)
+    return funding_to_csv(funding)
 
 @app.route('/api/trades', methods=['GET'])
 def return_trades():
@@ -117,4 +211,5 @@ def return_trades():
     else:
         return "Error: Address not specified"
     trades = get_all_trades(address)
-    return trades_to_csv(trades)
+    return jsonify(trades)
+    # return trades_to_csv(trades)
