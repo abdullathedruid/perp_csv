@@ -175,6 +175,18 @@ def get_all_funding(address, amm):
         lastFunding = trade['timestamp']
         size = numparser(trade['positionSizeAfter'])
 
+    #This gets you funding up until last trade, but now need to get funding from that trade until now
+    last_funding = get_all_funding_changed_between_timestamps(amm.lower(), lastFunding, int(time.time()))
+    for fund in last_funding:
+        pos = {}
+        pos['asset'] = assets.get(str(trade['amm']),trade['amm'])
+        # pos['size'] = size
+        pos['rate'] = numparser(fund['rate'])
+        # pos['price'] = numparser(fund['underlyingPrice'])
+        pos['timestamp'] = dateparser(fund['timestamp'])
+        pos['payment'] = numparser(fund['underlyingPrice']) * size * numparser(fund['rate'])
+        output.append(pos)
+
     return output
 
 def build_funding_headers():
